@@ -148,6 +148,19 @@ class ShotDetector:
                 if conf > .5 and current_class == "rim":
                     self.hoop_pos.append((center, self.frame_count, w, h, conf))
                     cvzone.cornerRect(self.frame, (x1, y1, w, h))
+            
+            # Add frame number to the frame
+            frame_number_text = f"Frame: {self.frame_count + 1}"
+            cv2.putText(
+                self.frame, 
+                frame_number_text, 
+                (10, 30),  # Position (x, y)
+                cv2.FONT_HERSHEY_SIMPLEX,  # Font
+                1,  # Font scale
+                (0, 255, 0),  # Color (Green)
+                2  # Thickness
+            )
+
 
             self.clean_motion()
             self.shot_detection()

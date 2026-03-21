@@ -24,7 +24,7 @@ box_annotator = sv.BoxAnnotator(color=COLOR, thickness=2)
 label_annotator = sv.LabelAnnotator(color=COLOR, text_color=sv.Color.BLACK)
 
 # Video path
-VIDEO_PATH = "../test_video/clip3_shoot.mp4"
+VIDEO_PATH = "../test_video/clip1_dunk.mp4"
 
 # Function to check if ball is in basket
 def is_ball_in_basket(detections):
@@ -83,6 +83,18 @@ def main():
         annotated_frame = label_annotator.annotate(
             scene=annotated_frame,
             detections=sv_detections
+        )
+
+        # Add frame number to the frame
+        frame_number_text = f"Frame: {frame_count + 1}"
+        cv2.putText(
+            annotated_frame, 
+            frame_number_text, 
+            (10, 30),  # Position (x, y)
+            cv2.FONT_HERSHEY_SIMPLEX,  # Font
+            1,  # Font scale
+            (0, 255, 0),  # Color (Green)
+            2  # Thickness
         )
 
         # Display frame
