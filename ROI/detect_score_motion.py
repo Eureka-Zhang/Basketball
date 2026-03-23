@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 from inference_sdk import InferenceHTTPClient
 from dotenv import load_dotenv
+from scipy.signal import find_peaks
 import os
 
 # Load environment variables
@@ -19,11 +20,11 @@ def detect(frame):
     cv2.imwrite(temp_image_path, frame)
 
     # Perform inference using the HTTP client
-    results = CLIENT.infer(temp_image_path, model_id="robocon-bb/2")
+    results = CLIENT.infer(temp_image_path, model_id="basketball-players-fy4c2/25")
 
     basket_bbox = None
     for prediction in results['predictions']:
-        if prediction['class'] == 'basket':
+        if prediction['class'] == 'Hoop':
             basket_bbox = {
                 'x': prediction['x'],
                 'y': prediction['y'],
@@ -32,6 +33,26 @@ def detect(frame):
                 'confidence': prediction['confidence']
             }
             break  # Only one basket is expected, so we can exit early
+
+    # 将检测结果标在 temp_frame.jpg 上（便于直接打开该文件查看）
+    out = frame.copy()
+    if basket_bbox is not None:
+        h, w = frame.shape[:2]
+        x1 = max(0, int(basket_bbox['x'] - basket_bbox['width'] / 2))
+        y1 = max(0, int(basket_bbox['y'] - basket_bbox['height'] / 2))
+        x2 = min(w, int(basket_bbox['x'] + basket_bbox['width'] / 2))
+        y2 = min(h, int(basket_bbox['y'] + basket_bbox['height'] / 2))
+        cv2.rectangle(out, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        cv2.putText(
+            out,
+            f"basket {basket_bbox['confidence']:.2f}",
+            (x1, max(20, y1 - 10)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            (0, 255, 0),
+            2,
+        )
+    cv2.imwrite(temp_image_path, out)
 
     return basket_bbox
 
@@ -78,6 +99,9 @@ def main():
     motion_series = []
     ball_positions = []
     prev_frame = None
+    basket_bbox = None
+    frame_idx = 0
+    gui_available = True
 
     while True:
         ret, frame = cap.read()
@@ -89,6 +113,9 @@ def main():
             prev_frame = frame
             continue
 
+        frame_idx += 1
+        display_frame = frame.copy()
+
         # 1. YOLO detection
         basket_bbox = detect(frame)
 
@@ -99,17 +126,49 @@ def main():
         flow = calc_flow(prev_frame, frame)
 
         if basket_bbox:
-            x1 = int(basket_bbox['x'] - basket_bbox['width'] / 2)
-            y1 = int(basket_bbox['y'] - basket_bbox['height'] / 2)
-            x2 = int(basket_bbox['x'] + basket_bbox['width'] / 2)
-            y2 = int(basket_bbox['y'] + basket_bbox['height'] / 2)
+            x1 = max(0, int(basket_bbox['x'] - basket_bbox['width'] / 2))
+            y1 = max(0, int(basket_bbox['y'] - basket_bbox['height'] / 2))
+            x2 = min(frame.shape[1], int(basket_bbox['x'] + basket_bbox['width'] / 2))
+            y2 = min(frame.shape[0], int(basket_bbox['y'] + basket_bbox['height'] / 2))
             roi = flow[y1:y2, x1:x2]
-            mag = compute_magnitude(roi)
-            motion_series.append(np.mean(mag))
+            if roi.size > 0:
+                mag = compute_magnitude(roi)
+                flow_value = float(np.mean(mag))
+                motion_series.append(flow_value)
+                print(f"[FLOW] Frame {frame_idx}: {flow_value:.4f}")
+
+            cv2.rectangle(display_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            cv2.putText(
+                display_frame,
+                f"basket {basket_bbox['confidence']:.2f}",
+                (x1, max(20, y1 - 10)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                (0, 255, 0),
+                2
+            )
+        else:
+            print(f"[FLOW] Frame {frame_idx}: basket not detected")
+
+        if gui_available:
+            try:
+                cv2.imshow("Basket Detection + Optical Flow", display_frame)
+                if cv2.waitKey(1) & 0xFF == ord('q'):
+                    print("[INFO] Interrupted by user.")
+                    break
+            except cv2.error:
+                gui_available = False
+                print("[WARN] OpenCV GUI is unavailable; disabling on-screen display.")
 
         prev_frame = frame
 
     # ---- Time series processing ----
+    if not motion_series:
+        print("[WARN] No valid optical-flow ROI collected.")
+        cap.release()
+        cv2.destroyAllWindows()
+        return
+
     motion_smooth = smooth(motion_series)
     peaks, _ = find_peaks(motion_smooth, height=2.0)
 
@@ -123,6 +182,7 @@ def main():
             print("未进球。")
 
     cap.release()
+    cv2.destroyAllWindows()
 
 if __name__ == "__main__":
     main()
